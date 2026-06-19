@@ -185,7 +185,8 @@ OneUptime is licensed under the [Apache License 2.0](LICENSE).
 ---
 
 <p align="center">
-  Made with ❤️ by the OneUptime team and contributors
+  We have Brilliant experience  all kind of software development. Hit me up!
+  Thank you
 </p>
 
 
