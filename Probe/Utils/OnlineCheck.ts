@@ -6,7 +6,74 @@ import URL from "Common/Types/API/URL";
 import Port from "Common/Types/Port";
 import { IsBillingEnabled } from "Common/Server/EnvironmentConfig";
 
+type OnlineCheckMonitorType = "website" | "ping" | "port";
+type OnlineCheckStatus = "success" | "failed";
+
+interface OnlineCheckMetric {
+  monitorType: OnlineCheckMonitorType;
+  target: string;
+  status: OnlineCheckStatus;
+  latencyMs: number;
+  timestamp: string;
+  failureType?: string;
+}
+
 export default class OnlineCheck {
+  private static recordMetric(metric: OnlineCheckMetric): void {
+    console.log(
+      JSON.stringify({
+        event: "probe_online_check",
+        ...metric,
+      }),
+    );
+  }
+
+  private static getLatencyMs(startTime: number): number {
+    return Date.now() - startTime;
+  }
+
+  private static getFailureType(error: unknown): string {
+    if (!(error instanceof Error)) {
+      return "unknown_error";
+    }
+
+    const message: string = error.message.toLowerCase();
+
+    if (message.includes("timeout") || message.includes("timed out")) {
+      return "timeout";
+    }
+
+    if (
+      message.includes("enotfound") ||
+      message.includes("eai_again") ||
+      message.includes("dns")
+    ) {
+      return "dns_error";
+    }
+
+    if (
+      message.includes("certificate") ||
+      message.includes("tls") ||
+      message.includes("ssl")
+    ) {
+      return "tls_error";
+    }
+
+    if (
+      message.includes("econnrefused") ||
+      message.includes("econnreset") ||
+      message.includes("network")
+    ) {
+      return "network_error";
+    }
+
+    if (message.includes("http")) {
+      return "http_error";
+    }
+
+    return "unknown_error";
+  }
+
   // burn domain names into the code to see if this probe is online.
   public static async canProbeMonitorWebsiteMonitors(): Promise<boolean> {
     if (!IsBillingEnabled) {
@@ -26,14 +93,34 @@ export default class OnlineCheck {
     ];
 
     for (const websiteName of websiteNames) {
-      if (
-        (
-          await WebsiteMonitor.ping(URL.fromString(websiteName), {
-            isOnlineCheckRequest: true,
-          })
-        )?.isOnline
-      ) {
-        return true;
+      const startTime: number = Date.now();
+
+      try {
+        const result = await WebsiteMonitor.ping(URL.fromString(websiteName), {
+          isOnlineCheckRequest: true,
+        });
+
+        OnlineCheck.recordMetric({
+          monitorType: "website",
+          target: websiteName,
+          status: result?.isOnline ? "success" : "failed",
+          latencyMs: OnlineCheck.getLatencyMs(startTime),
+          timestamp: new Date().toISOString(),
+          ...(result?.isOnline ? {} : { failureType: "http_error" }),
+        });
+
+        if (result?.isOnline) {
+          return true;
+        }
+      } catch (error) {
+        OnlineCheck.recordMetric({
+          monitorType: "website",
+          target: websiteName,
+          status: "failed",
+          latencyMs: OnlineCheck.getLatencyMs(startTime),
+          timestamp: new Date().toISOString(),
+          failureType: OnlineCheck.getFailureType(error),
+        });
       }
     }
 
@@ -58,14 +145,34 @@ export default class OnlineCheck {
     ];
 
     for (const domain of domains) {
-      if (
-        (
-          await PingMonitor.ping(new Hostname(domain), {
-            isOnlineCheckRequest: true,
-          })
-        )?.isOnline
-      ) {
-        return true;
+      const startTime: number = Date.now();
+
+      try {
+        const result = await PingMonitor.ping(new Hostname(domain), {
+          isOnlineCheckRequest: true,
+        });
+
+        OnlineCheck.recordMetric({
+          monitorType: "ping",
+          target: domain,
+          status: result?.isOnline ? "success" : "failed",
+          latencyMs: OnlineCheck.getLatencyMs(startTime),
+          timestamp: new Date().toISOString(),
+          ...(result?.isOnline ? {} : { failureType: "network_error" }),
+        });
+
+        if (result?.isOnline) {
+          return true;
+        }
+      } catch (error) {
+        OnlineCheck.recordMetric({
+          monitorType: "ping",
+          target: domain,
+          status: "failed",
+          latencyMs: OnlineCheck.getLatencyMs(startTime),
+          timestamp: new Date().toISOString(),
+          failureType: OnlineCheck.getFailureType(error),
+        });
       }
     }
 
@@ -90,14 +197,38 @@ export default class OnlineCheck {
     ];
 
     for (const domain of domains) {
-      if (
-        (
-          await PortMonitor.ping(new Hostname(domain), new Port(80), {
+      const startTime: number = Date.now();
+
+      try {
+        const result = await PortMonitor.ping(
+          new Hostname(domain),
+          new Port(80),
+          {
             isOnlineCheckRequest: true,
-          })
-        )?.isOnline
-      ) {
-        return true;
+          },
+        );
+
+        OnlineCheck.recordMetric({
+          monitorType: "port",
+          target: domain,
+          status: result?.isOnline ? "success" : "failed",
+          latencyMs: OnlineCheck.getLatencyMs(startTime),
+          timestamp: new Date().toISOString(),
+          ...(result?.isOnline ? {} : { failureType: "network_error" }),
+        });
+
+        if (result?.isOnline) {
+          return true;
+        }
+      } catch (error) {
+        OnlineCheck.recordMetric({
+          monitorType: "port",
+          target: domain,
+          status: "failed",
+          latencyMs: OnlineCheck.getLatencyMs(startTime),
+          timestamp: new Date().toISOString(),
+          failureType: OnlineCheck.getFailureType(error),
+        });
       }
     }
 
